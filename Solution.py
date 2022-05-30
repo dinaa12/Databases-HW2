@@ -33,14 +33,67 @@ def createTables():
                      "(file_id integer,"
                      "FOREIGN KEY (file_id) REFERENCES Files(file_id) ON DELETE CASCADE,"
                      "disk_id integer,"
-                     "FOREIGN KEY (disk_id) REFERENCES Disks(disk_id) ON DELETE CASCADE)")
+                     "FOREIGN KEY (disk_id) REFERENCES Disks(disk_id) ON DELETE CASCADE,"
+                     "PRIMARY KEY (file_id, disk_id))")
         # save pair of (ram_id, disk_id) if ram with ram_id is in disk with disk_id
         conn.execute("CREATE TABLE RamsInDisks"
                      "(ram_id integer,"
                      "FOREIGN KEY (ram_id) REFERENCES Rams(ram_id) ON DELETE CASCADE,"
                      "disk_id integer,"
-                     "FOREIGN KEY (disk_id) REFERENCES Disks(disk_id) ON DELETE CASCADE)")
-        # views?
+                     "FOREIGN KEY (disk_id) REFERENCES Disks(disk_id) ON DELETE CASCADE,"
+                     "PRIMARY KEY (ram_id, disk_id))")
+        # views
+
+        conn.execute("CREATE VIEW FilesInDisksWithFileData AS "
+                     "SELECT FilesInDisks.file_id AS file_id, FilesInDisks.disk_id AS disk_id, "
+                     "Files.size AS file_size, Files.type AS file_type "
+                     "FROM FilesInDisks "
+                     "INNER JOIN Files ON FilesInDisks.file_id=Files.file_id")
+
+        conn.execute("CREATE VIEW RamsInDisksWithRamData AS "
+                     "SELECT RamsInDisks.ram_id AS ram_id, RamsInDisks.disk_id AS disk_id, "
+                     "Rams.size AS ram_size, Rams.company AS ram_company "
+                     "FROM RamsInDisks "
+                     "INNER JOIN Rams ON RamsInDisks.ram_id=Rams.ram_id")
+
+        conn.execute("CREATE VIEW FilesInDisksWithFileDataAndCost AS "
+                     "SELECT FilesInDisksWithFileData.disk_id AS disk_id, Disks.cost as disk_cost, "
+                     "FilesInDisksWithFileData.file_size AS file_size, FilesInDisksWithFileData.file_type AS file_type "
+                     "FROM FilesInDisksWithFileData "
+                     "INNER JOIN Disks ON FilesInDisksWithFileData.disk_id=Disks.disk_id")
+
+        conn.execute("CREATE VIEW RamsInDisksWithRamDataAndCompany AS "
+                     "SELECT RamsInDisksWithRamData.disk_id AS disk_id, Disks.company as disk_company, "
+                     "RamsInDisksWithRamData.ram_id AS ram_id, RamsInDisksWithRamData.ram_company AS ram_company "
+                     "FROM RamsInDisksWithRamData "
+                     "INNER JOIN Disks ON RamsInDisksWithRamData.disk_id=Disks.disk_id")
+
+        conn.execute("CREATE VIEW PricePerType AS "
+                     "SELECT file_type, disk_cost * file_size AS price "
+                     "FROM FilesInDisksWithFileDataAndCost")
+
+        conn.execute("CREATE VIEW CountFilesInDisks1 AS "
+                     "SELECT file_id, COUNT(*) FROM FilesInDisks GROUP BY file_id HAVING COUNT(file_id)>1")
+
+        conn.execute("CREATE VIEW FilesCanBeInDisks AS "
+                     "SELECT file_id, disk_id, speed FROM Files, Disks WHERE Files.size <= Disks.free_space")
+
+        conn.execute("CREATE VIEW CountFilesCanBeInDisks AS "
+            "SELECT disk_id, COUNT(*), speed FROM FilesCanBeInDisks GROUP BY disk_id, speed")
+
+        conn.execute("CREATE VIEW FilesInDisksForClose AS "
+                     "SELECT t1.file_id AS file_id, t1.disk_id AS disk_id, t2.file_id AS file2_id "
+                     "FROM FilesInDisks t1 INNER JOIN FilesInDisks t2 ON t1.disk_id = t2.disk_id")
+
+        conn.execute("CREATE VIEW FilesInDisksForCloseNoDup AS "
+                     "SELECT file_id, disk_id, file2_id FROM FilesInDisksForClose "
+                     "WHERE file_id!=file2_id")
+
+        conn.execute("CREATE VIEW CountFilesInDisks2 AS "
+                    "SELECT file_id, COUNT(*) FROM FilesInDisks GROUP BY file_id")
+
+        conn.execute("CREATE VIEW CountFilesInDisksForClose AS "
+                     "SELECT file_id, file2_id, COUNT(*) FROM FilesInDisksForCloseNoDup GROUP BY file_id, file2_id")
 
         conn.commit()
 
@@ -70,6 +123,18 @@ def clearTables():
         conn.execute(sql.SQL("DELETE FROM Rams"))
         conn.execute(sql.SQL("DELETE FROM FilesInDisks"))
         conn.execute(sql.SQL("DELETE FROM RamsInDisks"))
+        conn.execute(sql.SQL("DELETE FROM FilesInDisksWithFileData"))
+        conn.execute(sql.SQL("DELETE FROM RamsInDisksWithRamData"))
+        conn.execute(sql.SQL("DELETE FROM FilesInDisksWithFileDataAndCost"))
+        conn.execute(sql.SQL("DELETE FROM RamsInDisksWithRamDataAndCompany"))
+        conn.execute(sql.SQL("DELETE FROM PricePerType"))
+        conn.execute(sql.SQL("DELETE FROM CountFilesInDisks1"))
+        conn.execute(sql.SQL("DELETE FROM FilesCanBeInDisks"))
+        conn.execute(sql.SQL("DELETE FROM CountFilesCanBeInDisks"))
+        conn.execute(sql.SQL("DELETE FROM FilesInDisksForClose"))
+        conn.execute(sql.SQL("DELETE FROM FilesInDisksForCloseNoDup"))
+        conn.execute(sql.SQL("DELETE FROM CountFilesInDisks2"))
+        conn.execute(sql.SQL("DELETE FROM CountFilesInDisksForClose"))
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
         print(e)
@@ -96,6 +161,18 @@ def dropTables():
         conn.execute("DROP TABLE IF EXISTS Rams CASCADE")
         conn.execute("DROP TABLE IF EXISTS FilesInDisks CASCADE")
         conn.execute("DROP TABLE IF EXISTS RamsInDisks CASCADE")
+        conn.execute("DROP VIEW IF EXISTS FilesInDisksWithFileData CASCADE")
+        conn.execute("DROP VIEW IF EXISTS RamsInDisksWithRamData CASCADE")
+        conn.execute("DROP VIEW IF EXISTS FilesInDisksWithFileDataAndCost CASCADE")
+        conn.execute("DROP VIEW IF EXISTS RamsInDisksWithRamDataAndCompany CASCADE")
+        conn.execute("DROP VIEW IF EXISTS PricePerType CASCADE")
+        conn.execute("DROP VIEW IF EXISTS CountFilesInDisks1 CASCADE")
+        conn.execute("DROP VIEW IF EXISTS FilesCanBeInDisks CASCADE")
+        conn.execute("DROP VIEW IF EXISTS CountFilesCanBeInDisks CASCADE")
+        conn.execute("DROP VIEW IF EXISTS FilesInDisksForClose CASCADE")
+        conn.execute("DROP VIEW IF EXISTS FilesInDisksForCloseNoDup CASCADE")
+        conn.execute("DROP VIEW IF EXISTS CountFilesInDisks2 CASCADE")
+        conn.execute("DROP VIEW IF EXISTS CountFilesInDisksForClose CASCADE")
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
         print(e)
@@ -426,7 +503,7 @@ def addFileToDisk(file: File, diskID: int) -> Status:
         return Status.ALREADY_EXISTS
     except DatabaseException.FOREIGN_KEY_VIOLATION as e:
         conn.rollback()
-        return Status.BAD_PARAMS
+        return Status.NOT_EXISTS
     except Exception as e:
         conn.rollback()
         return Status.ERROR
@@ -437,105 +514,448 @@ def addFileToDisk(file: File, diskID: int) -> Status:
 
 
 def removeFileFromDisk(file: File, diskID: int) -> Status:
+    conn = None
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "BEGIN;"
+            "DELETE FROM FilesInDisks WHERE file_id={f_id} AND disk_id={d_id};"
+            "UPDATE Disks SET free_space = free_space + {needed_space} WHERE disk_id={d_id};"
+            "COMMIT;").format(
+            f_id=sql.Literal(file.getFileID()),
+            d_id=sql.Literal(diskID),
+            needed_space=sql.Literal(file.getSize()))
+        conn.execute(query)
+        conn.commit()
+    except DatabaseException.ConnectionInvalid as e:
+        conn.rollback()
+        return Status.ERROR
+    except DatabaseException.NOT_NULL_VIOLATION as e:
+        conn.rollback()
+        return Status.ERROR
+    except DatabaseException.CHECK_VIOLATION as e:
+        conn.rollback()
+        return Status.OK
+    except DatabaseException.UNIQUE_VIOLATION as e:
+        conn.rollback()
+        return Status.ERROR
+    except DatabaseException.FOREIGN_KEY_VIOLATION as e:
+        conn.rollback()
+        return Status.OK
+    except Exception as e:
+        conn.rollback()
+        return Status.ERROR
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
     return Status.OK
 
 
 def addRAMToDisk(ramID: int, diskID: int) -> Status:
+    conn = None
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "INSERT INTO RamsInDisks(ram_id, disk_id) "
+            "SELECT {ram_id}, (SELECT disk_id FROM Disks WHERE disk_id={d_id});").format(
+            ram_id=sql.Literal(ramID),
+            d_id=sql.Literal(diskID))
+        conn.execute(query)
+        conn.commit()
+    except DatabaseException.ConnectionInvalid as e:
+        conn.rollback()
+        return Status.ERROR
+    except DatabaseException.NOT_NULL_VIOLATION as e:
+        conn.rollback()
+        return Status.BAD_PARAMS
+    except DatabaseException.CHECK_VIOLATION as e:
+        conn.rollback()
+        return Status.BAD_PARAMS
+    except DatabaseException.UNIQUE_VIOLATION as e:
+        conn.rollback()
+        return Status.ALREADY_EXISTS
+    except DatabaseException.FOREIGN_KEY_VIOLATION as e:
+        conn.rollback()
+        return Status.NOT_EXISTS
+    except Exception as e:
+        conn.rollback()
+        return Status.ERROR
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
     return Status.OK
 
 
 def removeRAMFromDisk(ramID: int, diskID: int) -> Status:
+    conn = None
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "DELETE FROM RamsInDisks WHERE ram_id={r_id} AND disk_id={d_id};").format(
+            r_id=sql.Literal(ramID),
+            d_id=sql.Literal(diskID))
+        conn.execute(query)
+        conn.commit()
+    except DatabaseException.ConnectionInvalid as e:
+        conn.rollback()
+        return Status.ERROR
+    except DatabaseException.NOT_NULL_VIOLATION as e:
+        conn.rollback()
+        return Status.ERROR
+    except DatabaseException.CHECK_VIOLATION as e:
+        conn.rollback()
+        return Status.NOT_EXISTS
+    except DatabaseException.UNIQUE_VIOLATION as e:
+        conn.rollback()
+        return Status.ERROR
+    except DatabaseException.FOREIGN_KEY_VIOLATION as e:
+        conn.rollback()
+        return Status.NOT_EXISTS
+    except Exception as e:
+        conn.rollback()
+        return Status.ERROR
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
     return Status.OK
 
 
 def averageFileSizeOnDisk(diskID: int) -> float:
-    return 0
+    conn = None
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "SELECT AVG(FilesInDisksWithFileData.file_size) FROM FilesInDisksWithFileData WHERE disk_id = {d_id}").format(
+            d_id=sql.Literal(diskID))
+        _ , result = conn.execute(query)
+        conn.commit()
+    except DatabaseException.ConnectionInvalid as e:
+        conn.rollback()
+        return -1
+    except DatabaseException.NOT_NULL_VIOLATION as e:
+        conn.rollback()
+        return -1
+    except DatabaseException.CHECK_VIOLATION as e:
+        conn.rollback()
+        return 0
+    except DatabaseException.UNIQUE_VIOLATION as e:
+        conn.rollback()
+        return -1
+    except DatabaseException.FOREIGN_KEY_VIOLATION as e:
+        conn.rollback()
+        return 0
+    except Exception as e:
+        conn.rollback()
+        return -1
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
+    if not list(result[0].values())[0]:
+        return 0
+    return list(result[0].values())[0]
 
 
 def diskTotalRAM(diskID: int) -> int:
-    return 0
+    conn = None
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "SELECT SUM(RamsInDisksWithRamData.ram_size) FROM RamsInDisksWithRamData WHERE disk_id = {d_id}").format(
+            d_id=sql.Literal(diskID))
+        _, result = conn.execute(query)
+        conn.commit()
+    except DatabaseException.ConnectionInvalid as e:
+        conn.rollback()
+        return -1
+    except DatabaseException.NOT_NULL_VIOLATION as e:
+        conn.rollback()
+        return -1
+    except DatabaseException.CHECK_VIOLATION as e:
+        conn.rollback()
+        return 0
+    except DatabaseException.UNIQUE_VIOLATION as e:
+        conn.rollback()
+        return -1
+    except DatabaseException.FOREIGN_KEY_VIOLATION as e:
+        conn.rollback()
+        return 0
+    except Exception as e:
+        conn.rollback()
+        return -1
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
+    if not list(result[0].values())[0]:
+        return 0
+    return list(result[0].values())[0]
 
 
 def getCostForType(type: str) -> int:
-    return 0
+    conn = None
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "SELECT SUM(price) FROM PricePerType WHERE file_type = {f_type}").format(
+            f_type=sql.Literal(type))
+        _, result = conn.execute(query)
+        conn.commit()
+    except DatabaseException.ConnectionInvalid as e:
+        conn.rollback()
+        return -1
+    except DatabaseException.NOT_NULL_VIOLATION as e:
+        conn.rollback()
+        return -1
+    except DatabaseException.CHECK_VIOLATION as e:
+        conn.rollback()
+        return 0
+    except DatabaseException.UNIQUE_VIOLATION as e:
+        conn.rollback()
+        return -1
+    except DatabaseException.FOREIGN_KEY_VIOLATION as e:
+        conn.rollback()
+        return 0
+    except Exception as e:
+        conn.rollback()
+        return -1
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
+    if not list(result[0].values())[0]:
+        return 0
+    return list(result[0].values())[0]
 
 
 def getFilesCanBeAddedToDisk(diskID: int) -> List[int]:
-    return []
+    my_result = []
+    conn = None
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "SELECT file_id FROM Files "
+            "WHERE Files.size <= "
+            "(SELECT free_space FROM Disks WHERE disk_id={d_id})"
+            "ORDER BY file_id DESC;").format(
+            d_id=sql.Literal(diskID))
+        _, result = conn.execute(query)
+        conn.commit()
+
+    except:
+        conn.rollback()
+        return my_result
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
+    if not list(result[0].values())[0]:
+        return 0
+    for i in range(len(list(result.rows))):
+        if i >= 5:
+            break
+        my_result.append(list(result[i].values())[0])
+    return my_result
 
 
 def getFilesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
-    return []
+    conn = None
+    my_result = []
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "SELECT file_id FROM Files "
+            "WHERE Files.size <= "
+            "("
+            "(SELECT free_space FROM Disks WHERE disk_id={d_id}) "
+            "+ "
+            "(SELECT COALESCE(SUM(RamsInDisksWithRamData.ram_id) , 0) FROM RamsInDisksWithRamData WHERE disk_id = 10)"
+            ")"
+            "ORDER BY file_id ASC;").format(
+            d_id=sql.Literal(diskID))
+        _, result = conn.execute(query)
+        conn.commit()
+
+    except:
+        conn.rollback()
+        return my_result
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
+    if not list(result[0].values())[0]:
+        return 0
+    for i in range(len(list(result.rows))):
+        if i >= 5:
+            break
+        my_result.append(list(result[i].values())[0])
+    return my_result
 
 
 def isCompanyExclusive(diskID: int) -> bool:
-    return True
+    conn = None
+    rows_effected = 0
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "SELECT ram_id FROM RamsInDisksWithRamDataAndCompany "
+            "WHERE ram_company!=disk_company").format(
+            d_id=sql.Literal(diskID))
+        rows_effected, _= conn.execute(query)
+        conn.commit()
+
+    except:
+        conn.rollback()
+        return False
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
+    if rows_effected  == 0:
+        return True
+    return False
 
 
 def getConflictingDisks() -> List[int]:
-    return []
+    conn = None
+    my_result = []
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "SELECT disk_id FROM FilesInDisks WHERE file_id IN "
+            "(SELECT file_id FROM CountFilesInDisks1)"
+            "ORDER BY disk_id ASC")
+        _, result = conn.execute(query)
+        conn.commit()
+
+    except:
+        conn.rollback()
+        return my_result
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
+    for i in range(len(list(result.rows))):
+        my_result.append(list(result[i].values())[0])
+    return my_result
 
 
 def mostAvailableDisks() -> List[int]:
-    return []
+    conn = None
+    my_result = []
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "SELECT disk_id FROM CountFilesCanBeInDisks "
+            "ORDER BY count DESC, speed DESC, disk_id ASC")
+        _, result = conn.execute(query)
+        conn.commit()
+
+    except:
+        conn.rollback()
+        return my_result
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
+    for i in range(len(list(result.rows))):
+        if i>=5:
+            break
+        my_result.append(list(result[i].values())[0])
+    return my_result
 
 
 def getCloseFiles(fileID: int) -> List[int]:
-    return []
+    conn = None
+    my_result = []
+    try:
+        conn = Connector.DBConnector()
+        query = sql.SQL(
+            "SELECT file2_id FROM CountFilesInDisksForClose "
+            "WHERE file_id = {f_id} AND count * 2 >= (SELECT count FROM CountFilesInDisks2 WHERE file_id = {f_id}) "
+            "ORDER BY file2_id ASC").format(
+            f_id=sql.Literal(fileID))
+        _, result = conn.execute(query)
+        conn.commit()
+
+    except Exception as e:
+        conn.rollback()
+        return my_result
+    finally:
+        # will happen any way after code try termination or exception handling
+        conn.close()
+    for i in range(len(list(result.rows))):
+        if i >= 10:
+            break
+        my_result.append(list(result[i].values())[0])
+    return my_result
 
 
-
-
-# TODO: delete before submission
-
-if __name__ == '__main__':
-    print("hello")
-    print("Creating all tables")
-    createTables()
-    print("Add file {1, pdf, 100}")
-    print(addFile(File(1, 'pdf', 100)))
-    print("Add disk {10, c1, 2, 1000, 300}")
-    print(addDisk(Disk(10, 'c1', 2, 100, 300)))
-
-    print("Add file 1 to disk 10")
-    print(addFileToDisk(File(1, 'pdf', 100), 10))
-
-
-    # print("Add RAM {100, c2, 40}")
-    # print(addRAM(RAM(100, 'c2', 40)))
-
-
-    # print("Add file {2, pdf, 100} and disk {20, c1, 2, 1000, 300}")
-    # print(addDiskAndFile(Disk(20, 'c1', 2, 1000, 300), File(2, 'pdf', 100)))
-
-    # print('Can\'t reinsert the same row')
-    # print(addFile(File(1, 'pdf', 100)))
-    #
-    # print("get file")
-    # print(getFileByID(1).getFileID())
-    # print("get disk")
-    # print(getDiskByID(10).getDiskID())
-    # print("get RAM")
-    # print(getRAMByID(100).getRamID())
-    #
-    # print("Delete file {1, pdf, 100}")
-    # print(deleteFile(File(1, 'pdf', 100)))
-    # print("Delete disk {10, c1, 2, 1000, 300}")
-    # print(deleteDisk(10))
-    # print("Delete RAM {100, c2, 40}")
-    # print(deleteRAM(100))
-    #
-    # print("Delete when it doent exist")
-    # print("Delete file {1, pdf, 100}")
-    # print(deleteFile(File(1, 'pdf', 100)))
-    # print("Delete disk {10, c1, 2, 1000, 300}")
-    # print(deleteDisk(10))
-    # print("Delete RAM {100, c2, 40}")
-    # print(deleteRAM(100))
-    #
-    # print("Add file {1, pdf, 100}")
-    # print(addFile(File(1, 'pdf', 100)))
-
-    clearTables()
-
-    dropTables()
+# # TODO: delete before submission
+#
+# if __name__ == '__main__':
+#     print("hello")
+#     print("Creating all tables")
+#     createTables()
+#     print("Add file {1, pdf, 100}")
+#     print(addFile(File(1, 'pdf', 100)))
+#     print("Add file {2, pdf, 50}")
+#     print(addFile(File(2, 'pdf', 50)))
+#     print("Add file {3, pdf, 50}")
+#     print(addFile(File(3, 'pdf', 50)))
+#     print("Add file {4, pdf, 50}")
+#     print(addFile(File(4, 'pdf', 50)))
+#     print("Add file {5, pdf, 50}")
+#     print(addFile(File(5, 'pdf', 60)))
+#     print("Add file {6, pdf, 50}")
+#     print(addFile(File(6, 'pdf', 50)))
+#     print("Add disk {10, c1, 2, 90, 300}")
+#     print(addDisk(Disk(10, 'c1', 2, 900, 300)))
+#     print("Add disk {11, c1, 2, 90, 300}")
+#     print(addDisk(Disk(11, 'c1', 2, 900, 300)))
+#
+#     print("Add RAM {100, c2, 40}")
+#     print(addRAM(RAM(100, 'c2', 40)))
+#
+#     print("Add ram 100 to disk 10")
+#   #  print(addRAMToDisk(100, 10))
+#
+#     print("Add file 1 to disk 10")
+#     print(addFileToDisk(File(1, 'pdf', 100), 10))
+#     print("Add file 1 to disk 11")
+#     print(addFileToDisk(File(2, 'pdf', 100), 10))
+#
+#     print(getCloseFiles(1))
+#
+#     # print("remove file 1 to disk 10")
+#     # print(removeFileFromDisk(File(1, 'pdf', 100), 10))
+#
+#
+#
+#
+#     # print("Add file {2, pdf, 100} and disk {20, c1, 2, 1000, 300}")
+#     # print(addDiskAndFile(Disk(20, 'c1', 2, 1000, 300), File(2, 'pdf', 100)))
+#
+#     # print('Can\'t reinsert the same row')
+#     # print(addFile(File(1, 'pdf', 100)))
+#     #
+#     # print("get file")
+#     # print(getFileByID(1).getFileID())
+#     # print("get disk")
+#     # print(getDiskByID(10).getDiskID())
+#     # print("get RAM")
+#     # print(getRAMByID(100).getRamID())
+#     #
+#     # print("Delete file {1, pdf, 100}")
+#     # print(deleteFile(File(1, 'pdf', 100)))
+#     # print("Delete disk {10, c1, 2, 1000, 300}")
+#     # print(deleteDisk(10))
+#     # print("Delete RAM {100, c2, 40}")
+#     # print(deleteRAM(100))
+#     #
+#     # print("Delete when it doent exist")
+#     # print("Delete file {1, pdf, 100}")
+#     # print(deleteFile(File(1, 'pdf', 100)))
+#     # print("Delete disk {10, c1, 2, 1000, 300}")
+#     # print(deleteDisk(10))
+#     # print("Delete RAM {100, c2, 40}")
+#     # print(deleteRAM(100))
+#     #
+#     # print("Add file {1, pdf, 100}")
+#     # print(addFile(File(1, 'pdf', 100)))
+#
+#     clearTables()
+#
+#     dropTables()
