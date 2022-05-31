@@ -257,7 +257,7 @@ def getFileByID(fileID: int) -> File:
             id=sql.Literal(fileID))
         rows_affected, result = conn.execute(query)
 
-        if rows_affected != 0: # TODO: make sure it works
+        if rows_affected != 0:
             ret = File(result[0]["file_id"], result[0]["type"], result[0]["size"])
 
     except:
@@ -276,8 +276,6 @@ def deleteFile(file: File) -> Status:
             "DELETE FROM Files WHERE file_id={id}").format(
             id=sql.Literal(file.getFileID()))
         rows_effected, _ =conn.execute(query)
-        # if rows_effected == 0:
-        #     return Status.NOT_EXISTS # TODO: ????
         conn.commit()
 
     except:
@@ -339,7 +337,7 @@ def getDiskByID(diskID: int) -> Disk:
             id=sql.Literal(diskID))
         rows_effected, result = conn.execute(query)
 
-        if rows_effected != 0:  # TODO: make sure it works
+        if rows_effected != 0:
             ret = Disk(result[0]["disk_id"], result[0]["company"], result[0]["speed"], result[0]["free_space"], result[0]["cost"])
 
     except:
@@ -419,7 +417,7 @@ def getRAMByID(ramID: int) -> RAM:
             id=sql.Literal(ramID))
         rows_effected, result = conn.execute(query)
 
-        if rows_effected != 0:  # TODO: make sure it works
+        if rows_effected != 0:
             ret = RAM(result[0]["ram_id"], result[0]["company"], result[0]["size"])
 
     except:
@@ -575,7 +573,6 @@ def addRAMToDisk(ramID: int, diskID: int) -> Status:
         conn = Connector.DBConnector()
         query = sql.SQL(
             "INSERT INTO RamsInDisks(ram_id, disk_id) VALUES({r_id},{d_id})").format(
-               # "(SELECT ram_id FROM Rams WHERE ram_id={r_id}), (SELECT disk_id FROM Disks WHERE disk_id={d_id})").format(
             r_id=sql.Literal(ramID),
             d_id=sql.Literal(diskID))
         conn.execute(query)
@@ -756,7 +753,7 @@ def getFilesCanBeAddedToDisk(diskID: int) -> List[int]:
             "(SELECT free_space FROM Disks WHERE disk_id={d_id})"
             "ORDER BY file_id DESC;").format(
             d_id=sql.Literal(diskID))
-        _, result = conn.execute(query)
+        rows_effected, result = conn.execute(query)
         conn.commit()
 
     except:
@@ -765,8 +762,8 @@ def getFilesCanBeAddedToDisk(diskID: int) -> List[int]:
     finally:
         # will happen any way after code try termination or exception handling
         conn.close()
-    if not result[0] or len(list(result[0].values())) == 0 or not list(result[0].values())[0]:
-        return my_result
+    if rows_effected == 0:
+        return []
     for i in range(len(list(result.rows))):
         if i >= 5:
             break
@@ -789,7 +786,7 @@ def getFilesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
             ")"
             "ORDER BY file_id ASC;").format(
             d_id=sql.Literal(diskID))
-        _, result = conn.execute(query)
+        rows_effected, result = conn.execute(query)
         conn.commit()
 
     except:
@@ -798,7 +795,7 @@ def getFilesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
     finally:
         # will happen any way after code try termination or exception handling
         conn.close()
-    if not result[0] or len(list(result[0].values())) == 0 or not list(result[0].values())[0]:
+    if rows_effected == 0:
         return my_result
     for i in range(len(list(result.rows))):
         if i >= 5:
@@ -813,8 +810,11 @@ def isCompanyExclusive(diskID: int) -> bool:
     try:
         conn = Connector.DBConnector()
         query = sql.SQL(
-            "SELECT ram_id, disk_id FROM RamsInDisksWithRamDataAndCompany "
-            "WHERE ram_company!=disk_company AND disk_id={d_id}").format(
+            "SELECT company FROM "
+	        "(SELECT company FROM Disks WHERE disk_id={d_id} "
+	        "UNION "
+	        "SELECT ram_company AS company FROM RamsInDisksWithRamDataAndCompany WHERE disk_id={d_id}) AS comany "
+            "GROUP BY company").format(
             d_id=sql.Literal(diskID))
         rows_effected, _= conn.execute(query)
         conn.commit()
@@ -825,7 +825,7 @@ def isCompanyExclusive(diskID: int) -> bool:
     finally:
         # will happen any way after code try termination or exception handling
         conn.close()
-    if rows_effected  == 0:
+    if rows_effected  == 1:
         return True
     return False
 
@@ -900,105 +900,3 @@ def getCloseFiles(fileID: int) -> List[int]:
             break
         my_result.append(list(result[i].values())[0])
     return my_result
-
-
-# TODO: delete before submission
-
-
-if __name__ == '__main__':
-    createTables()
-
-    disk1 = Disk(1, "DELL", 10, 1, 10)
-    disk2 = Disk(2, "DELL", 10, 2, 10)
-    disk3 = Disk(3, "DELL", 10, 3, 10)
-    disk4 = Disk(4, "DELL", 10, 4, 10)
-    addDisk(disk1)
-    addDisk(disk2)
-    addDisk(disk3)
-    addDisk(disk4)
-    file1 = File(1, "wav", 1)
-    file2 = File(2, "wav", 2)
-    file3 = File(3, "wav", 3)
-    file4 = File(4, "wav", 4)
-    addFile(file1)
-    addFile(file2)
-    addFile(file3)
-    addFile(file4)
-    res = mostAvailableDisks()
-
-    print(res)
-
-    clearTables()
-    dropTables()
-
-
-#     print("hello")
-#     print("Creating all tables")
-#     createTables()
-#     print("Add file {1, pdf, 100}")
-#     print(addFile(File(1, 'pdf', 100)))
-#     print("Add file {2, pdf, 50}")
-#     print(addFile(File(2, 'pdf', 50)))
-#     print("Add file {3, pdf, 50}")
-#     print(addFile(File(3, 'pdf', 50)))
-#     print("Add file {4, pdf, 50}")
-#     print(addFile(File(4, 'pdf', 50)))
-#     print("Add file {5, pdf, 50}")
-#     print(addFile(File(5, 'pdf', 60)))
-#     print("Add file {6, pdf, 50}")
-#     print(addFile(File(6, 'pdf', 50)))
-#     print("Add disk {10, c1, 2, 90, 300}")
-#     print(addDisk(Disk(10, 'c1', 2, 900, 300)))
-#     print("Add disk {11, c1, 2, 90, 300}")
-#     print(addDisk(Disk(11, 'c1', 2, 900, 300)))
-#
-#     print("Add RAM {100, c2, 40}")
-#     print(addRAM(RAM(100, 'c2', 40)))
-#
-#     print("Add ram 100 to disk 10")
-#   #  print(addRAMToDisk(100, 10))
-#
-#     print("Add file 1 to disk 10")
-#     print(addFileToDisk(File(1, 'pdf', 100), 10))
-#     print("Add file 1 to disk 11")
-#     print(addFileToDisk(File(2, 'pdf', 100), 10))
-#
-#     print(getCloseFiles(1))
-#
-#     # print("remove file 1 to disk 10")
-#     # print(removeFileFromDisk(File(1, 'pdf', 100), 10))
-#
-#
-#
-#
-#     # print("Add file {2, pdf, 100} and disk {20, c1, 2, 1000, 300}")
-#     # print(addDiskAndFile(Disk(20, 'c1', 2, 1000, 300), File(2, 'pdf', 100)))
-#
-#     # print('Can\'t reinsert the same row')
-#     # print(addFile(File(1, 'pdf', 100)))
-#     #
-#     # print("get file")
-#     # print(getFileByID(1).getFileID())
-#     # print("get disk")
-#     # print(getDiskByID(10).getDiskID())
-#     # print("get RAM")
-#     # print(getRAMByID(100).getRamID())
-#     #
-#     # print("Delete file {1, pdf, 100}")
-#     # print(deleteFile(File(1, 'pdf', 100)))
-#     # print("Delete disk {10, c1, 2, 1000, 300}")
-#     # print(deleteDisk(10))
-#     # print("Delete RAM {100, c2, 40}")
-#     # print(deleteRAM(100))
-#     #
-#     # print("Delete when it doent exist")
-#     # print("Delete file {1, pdf, 100}")
-#     # print(deleteFile(File(1, 'pdf', 100)))
-#     # print("Delete disk {10, c1, 2, 1000, 300}")
-#     # print(deleteDisk(10))
-#     # print("Delete RAM {100, c2, 40}")
-#     # print(deleteRAM(100))
-#     #
-#     # print("Add file {1, pdf, 100}")
-#     # print(addFile(File(1, 'pdf', 100)))
-#
