@@ -75,25 +75,37 @@ def createTables():
         conn.execute("CREATE VIEW CountFilesInDisks1 AS "
                      "SELECT file_id, COUNT(*) FROM FilesInDisks GROUP BY file_id HAVING COUNT(file_id)>1")
 
+        conn.execute("CREATE VIEW FilesInDisksWithoutSingleFiles AS "
+                     "SELECT file_id, disk_id FROM FilesInDisks WHERE file_id IN (SELECT file_id FROM CountFilesInDisks1)")
+
         conn.execute("CREATE VIEW FilesCanBeInDisks AS "
                      "SELECT file_id, disk_id, speed FROM Files, Disks WHERE Files.size <= Disks.free_space")
 
         conn.execute("CREATE VIEW CountFilesCanBeInDisks AS "
             "SELECT disk_id, COUNT(*), speed FROM FilesCanBeInDisks GROUP BY disk_id, speed")
 
+        conn.execute("CREATE VIEW FilesInNoDisk AS "
+                     "SELECT file_id FROM Files EXCEPT SELECT file_id FROM FilesInDisks")
+
         conn.execute("CREATE VIEW FilesInDisksForClose AS "
                      "SELECT t1.file_id AS file_id, t1.disk_id AS disk_id, t2.file_id AS file2_id "
-                     "FROM FilesInDisks t1 INNER JOIN FilesInDisks t2 ON t1.disk_id = t2.disk_id")
+                     "FROM FilesInDisks t1 INNER JOIN FilesInDisks t2 ON t1.disk_id = t2.disk_id "
+                     "UNION "
+                     "SELECT FilesInNoDisk.file_id, NULL, Files.file_id AS file2_id FROM FilesInNoDisk, Files")
 
         conn.execute("CREATE VIEW FilesInDisksForCloseNoDup AS "
                      "SELECT file_id, disk_id, file2_id FROM FilesInDisksForClose "
                      "WHERE file_id!=file2_id")
 
         conn.execute("CREATE VIEW CountFilesInDisks2 AS "
-                    "SELECT file_id, COUNT(*) FROM FilesInDisks GROUP BY file_id")
+                     "SELECT file_id, COUNT(*) FROM FilesInDisks GROUP BY file_id "
+                     "UNION "
+                     "SELECT (SELECT file_id FROM FilesInNoDisk), 0")
 
         conn.execute("CREATE VIEW CountFilesInDisksForClose AS "
                      "SELECT file_id, file2_id, COUNT(*) FROM FilesInDisksForCloseNoDup GROUP BY file_id, file2_id")
+
+
 
         conn.commit()
 
@@ -258,8 +270,8 @@ def deleteFile(file: File) -> Status:
             "DELETE FROM Files WHERE file_id={id}").format(
             id=sql.Literal(file.getFileID()))
         rows_effected, _ =conn.execute(query)
-        if rows_effected == 0:
-            return Status.NOT_EXISTS # TODO: ????
+        # if rows_effected == 0:
+        #     return Status.NOT_EXISTS # TODO: ????
         conn.commit()
 
     except:
@@ -480,11 +492,10 @@ def addFileToDisk(file: File, diskID: int) -> Status:
         conn = Connector.DBConnector()
         query = sql.SQL(
             "BEGIN;"
-            "INSERT INTO FilesInDisks(file_id, disk_id) "
-                "SELECT {file_id}, (SELECT disk_id FROM Disks WHERE disk_id={d_id} AND free_space>={needed_space});"
+            "INSERT INTO FilesInDisks(file_id, disk_id) VALUES({f_id}, {d_id});"
             "UPDATE Disks SET free_space = free_space - {needed_space} WHERE disk_id={d_id};"
             "COMMIT;").format(
-            file_id=sql.Literal(file.getFileID()),
+            f_id=sql.Literal(file.getFileID()),
             d_id=sql.Literal(diskID),
             needed_space=sql.Literal(file.getSize()))
         conn.execute(query)
@@ -519,8 +530,9 @@ def removeFileFromDisk(file: File, diskID: int) -> Status:
         conn = Connector.DBConnector()
         query = sql.SQL(
             "BEGIN;"
+            "UPDATE Disks SET free_space = free_space + {needed_space} "
+                "WHERE disk_id=(SELECT disk_id FROM FilesInDisks WHERE file_id={f_id} AND disk_id={d_id});"
             "DELETE FROM FilesInDisks WHERE file_id={f_id} AND disk_id={d_id};"
-            "UPDATE Disks SET free_space = free_space + {needed_space} WHERE disk_id={d_id};"
             "COMMIT;").format(
             f_id=sql.Literal(file.getFileID()),
             d_id=sql.Literal(diskID),
@@ -556,9 +568,9 @@ def addRAMToDisk(ramID: int, diskID: int) -> Status:
     try:
         conn = Connector.DBConnector()
         query = sql.SQL(
-            "INSERT INTO RamsInDisks(ram_id, disk_id) "
-            "SELECT {ram_id}, (SELECT disk_id FROM Disks WHERE disk_id={d_id});").format(
-            ram_id=sql.Literal(ramID),
+            "INSERT INTO RamsInDisks(ram_id, disk_id) VALUES({r_id},{d_id})").format(
+               # "(SELECT ram_id FROM Rams WHERE ram_id={r_id}), (SELECT disk_id FROM Disks WHERE disk_id={d_id})").format(
+            r_id=sql.Literal(ramID),
             d_id=sql.Literal(diskID))
         conn.execute(query)
         conn.commit()
@@ -745,8 +757,8 @@ def getFilesCanBeAddedToDisk(diskID: int) -> List[int]:
     finally:
         # will happen any way after code try termination or exception handling
         conn.close()
-    if not list(result[0].values())[0]:
-        return 0
+    if not result[0] or len(list(result[0].values())) == 0 or not list(result[0].values())[0]:
+        return my_result
     for i in range(len(list(result.rows))):
         if i >= 5:
             break
@@ -778,8 +790,8 @@ def getFilesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
     finally:
         # will happen any way after code try termination or exception handling
         conn.close()
-    if not list(result[0].values())[0]:
-        return 0
+    if not result[0] or len(list(result[0].values())) == 0 or not list(result[0].values())[0]:
+        return my_result
     for i in range(len(list(result.rows))):
         if i >= 5:
             break
@@ -793,8 +805,8 @@ def isCompanyExclusive(diskID: int) -> bool:
     try:
         conn = Connector.DBConnector()
         query = sql.SQL(
-            "SELECT ram_id FROM RamsInDisksWithRamDataAndCompany "
-            "WHERE ram_company!=disk_company").format(
+            "SELECT ram_id, disk_id FROM RamsInDisksWithRamDataAndCompany "
+            "WHERE ram_company!=disk_company AND disk_id={d_id}").format(
             d_id=sql.Literal(diskID))
         rows_effected, _= conn.execute(query)
         conn.commit()
@@ -816,13 +828,12 @@ def getConflictingDisks() -> List[int]:
     try:
         conn = Connector.DBConnector()
         query = sql.SQL(
-            "SELECT disk_id FROM FilesInDisks WHERE file_id IN "
-            "(SELECT file_id FROM CountFilesInDisks1)"
+            "SELECT DISTINCT disk_id FROM FilesInDisksWithoutSingleFiles "
             "ORDER BY disk_id ASC")
         _, result = conn.execute(query)
         conn.commit()
 
-    except:
+    except Exception as e:
         conn.rollback()
         return my_result
     finally:
@@ -883,9 +894,22 @@ def getCloseFiles(fileID: int) -> List[int]:
     return my_result
 
 
-# # TODO: delete before submission
-#
-# if __name__ == '__main__':
+# TODO: delete before submission
+
+
+if __name__ == '__main__':
+    createTables()
+
+    disk1 = Disk(1, "DELL", 10, 10, 10)
+    ram1 = RAM(1, "wav", 15)
+    addRAM(ram1)
+    result = addRAMToDisk(ram1.getRamID(), disk1.getDiskID())
+    print(result)
+
+    clearTables()
+    dropTables()
+
+
 #     print("hello")
 #     print("Creating all tables")
 #     createTables()
@@ -956,6 +980,3 @@ def getCloseFiles(fileID: int) -> List[int]:
 #     # print("Add file {1, pdf, 100}")
 #     # print(addFile(File(1, 'pdf', 100)))
 #
-#     clearTables()
-#
-#     dropTables()
