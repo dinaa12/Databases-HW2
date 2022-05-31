@@ -82,7 +82,13 @@ def createTables():
                      "SELECT file_id, disk_id, speed FROM Files, Disks WHERE Files.size <= Disks.free_space")
 
         conn.execute("CREATE VIEW CountFilesCanBeInDisks AS "
-            "SELECT disk_id, COUNT(*), speed FROM FilesCanBeInDisks GROUP BY disk_id, speed")
+                     "SELECT disk_id, COUNT(*), speed FROM FilesCanBeInDisks GROUP BY disk_id, speed")
+
+        conn.execute("CREATE VIEW CountFilesCanBeInDisksWithZeros AS "
+                     "SELECT disk_id, count, speed FROM CountFilesCanBeInDisks "
+                     "UNION "
+                     "SELECT Disks.disk_id,  0 AS count, Disks.speed FROM Disks "
+                     "WHERE disk_id IN (SELECT disk_id FROM Disks EXCEPT SELECT disk_id FROM CountFilesCanBeInDisks)")
 
         conn.execute("CREATE VIEW FilesInNoDisk AS "
                      "SELECT file_id FROM Files EXCEPT SELECT file_id FROM FilesInDisks")
@@ -852,7 +858,7 @@ def mostAvailableDisks() -> List[int]:
     try:
         conn = Connector.DBConnector()
         query = sql.SQL(
-            "SELECT disk_id FROM CountFilesCanBeInDisks "
+            "SELECT disk_id FROM CountFilesCanBeInDisksWithZeros "
             "ORDER BY count DESC, speed DESC, disk_id ASC")
         _, result = conn.execute(query)
         conn.commit()
@@ -902,12 +908,25 @@ def getCloseFiles(fileID: int) -> List[int]:
 if __name__ == '__main__':
     createTables()
 
-    disk1 = Disk(1, "DELL", 10, 10, 10)
-    ram1 = RAM(1, "wav", 15)
-    addRAM(ram1)
+    disk1 = Disk(1, "DELL", 10, 1, 10)
+    disk2 = Disk(2, "DELL", 10, 2, 10)
+    disk3 = Disk(3, "DELL", 10, 3, 10)
+    disk4 = Disk(4, "DELL", 10, 4, 10)
+    addDisk(disk1)
+    addDisk(disk2)
+    addDisk(disk3)
+    addDisk(disk4)
+    file1 = File(1, "wav", 1)
+    file2 = File(2, "wav", 2)
+    file3 = File(3, "wav", 3)
+    file4 = File(4, "wav", 4)
+    addFile(file1)
+    addFile(file2)
+    addFile(file3)
+    addFile(file4)
+    res = mostAvailableDisks()
 
-    result = removeRAMFromDisk(ram1.getRamID(), disk1.getDiskID())
-    print(result)
+    print(res)
 
     clearTables()
     dropTables()
