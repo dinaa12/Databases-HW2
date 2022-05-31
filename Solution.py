@@ -603,10 +603,10 @@ def removeRAMFromDisk(ramID: int, diskID: int) -> Status:
     try:
         conn = Connector.DBConnector()
         query = sql.SQL(
-            "DELETE FROM RamsInDisks WHERE ram_id={r_id} AND disk_id={d_id};").format(
+            "DELETE FROM RamsInDisks WHERE ram_id={r_id} AND disk_id={d_id}").format(
             r_id=sql.Literal(ramID),
             d_id=sql.Literal(diskID))
-        conn.execute(query)
+        rows_effected, _ = conn.execute(query)
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
         conn.rollback()
@@ -629,6 +629,8 @@ def removeRAMFromDisk(ramID: int, diskID: int) -> Status:
     finally:
         # will happen any way after code try termination or exception handling
         conn.close()
+    if rows_effected == 0:
+        return Status.NOT_EXISTS
     return Status.OK
 
 
@@ -903,7 +905,8 @@ if __name__ == '__main__':
     disk1 = Disk(1, "DELL", 10, 10, 10)
     ram1 = RAM(1, "wav", 15)
     addRAM(ram1)
-    result = addRAMToDisk(ram1.getRamID(), disk1.getDiskID())
+
+    result = removeRAMFromDisk(ram1.getRamID(), disk1.getDiskID())
     print(result)
 
     clearTables()
