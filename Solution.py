@@ -62,12 +62,6 @@ def createTables():
                      "FROM FilesInDisksWithFileData "
                      "INNER JOIN Disks ON FilesInDisksWithFileData.disk_id=Disks.disk_id")
 
-        conn.execute("CREATE VIEW RamsInDisksWithRamDataAndCompany AS "
-                     "SELECT RamsInDisksWithRamData.disk_id AS disk_id, Disks.company as disk_company, "
-                     "RamsInDisksWithRamData.ram_id AS ram_id, RamsInDisksWithRamData.ram_company AS ram_company "
-                     "FROM RamsInDisksWithRamData "
-                     "INNER JOIN Disks ON RamsInDisksWithRamData.disk_id=Disks.disk_id")
-
         conn.execute("CREATE VIEW PricePerType AS "
                      "SELECT file_type, disk_cost * file_size AS price "
                      "FROM FilesInDisksWithFileDataAndCost")
@@ -87,7 +81,7 @@ def createTables():
         conn.execute("CREATE VIEW CountFilesCanBeInDisksWithZeros AS "
                      "SELECT disk_id, count, speed FROM CountFilesCanBeInDisks "
                      "UNION "
-                     "SELECT Disks.disk_id,  0 AS count, Disks.speed FROM Disks "
+                     "SELECT Disks.disk_id, 0 AS count, Disks.speed FROM Disks "
                      "WHERE disk_id IN (SELECT disk_id FROM Disks EXCEPT SELECT disk_id FROM CountFilesCanBeInDisks)")
 
         conn.execute("CREATE VIEW FilesInNoDisk AS "
@@ -106,7 +100,7 @@ def createTables():
         conn.execute("CREATE VIEW CountFilesInDisks2 AS "
                      "SELECT file_id, COUNT(*) FROM FilesInDisks GROUP BY file_id "
                      "UNION "
-                     "SELECT (SELECT file_id FROM FilesInNoDisk), 0")
+                     "SELECT file_id, 0 AS count FROM FilesInNoDisk")
 
         conn.execute("CREATE VIEW CountFilesInDisksForClose AS "
                      "SELECT file_id, file2_id, COUNT(*) FROM FilesInDisksForCloseNoDup GROUP BY file_id, file2_id")
@@ -141,18 +135,6 @@ def clearTables():
         conn.execute(sql.SQL("DELETE FROM Rams"))
         conn.execute(sql.SQL("DELETE FROM FilesInDisks"))
         conn.execute(sql.SQL("DELETE FROM RamsInDisks"))
-        conn.execute(sql.SQL("DELETE FROM FilesInDisksWithFileData"))
-        conn.execute(sql.SQL("DELETE FROM RamsInDisksWithRamData"))
-        conn.execute(sql.SQL("DELETE FROM FilesInDisksWithFileDataAndCost"))
-        conn.execute(sql.SQL("DELETE FROM RamsInDisksWithRamDataAndCompany"))
-        conn.execute(sql.SQL("DELETE FROM PricePerType"))
-        conn.execute(sql.SQL("DELETE FROM CountFilesInDisks1"))
-        conn.execute(sql.SQL("DELETE FROM FilesCanBeInDisks"))
-        conn.execute(sql.SQL("DELETE FROM CountFilesCanBeInDisks"))
-        conn.execute(sql.SQL("DELETE FROM FilesInDisksForClose"))
-        conn.execute(sql.SQL("DELETE FROM FilesInDisksForCloseNoDup"))
-        conn.execute(sql.SQL("DELETE FROM CountFilesInDisks2"))
-        conn.execute(sql.SQL("DELETE FROM CountFilesInDisksForClose"))
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
         print(e)
@@ -182,7 +164,6 @@ def dropTables():
         conn.execute("DROP VIEW IF EXISTS FilesInDisksWithFileData CASCADE")
         conn.execute("DROP VIEW IF EXISTS RamsInDisksWithRamData CASCADE")
         conn.execute("DROP VIEW IF EXISTS FilesInDisksWithFileDataAndCost CASCADE")
-        conn.execute("DROP VIEW IF EXISTS RamsInDisksWithRamDataAndCompany CASCADE")
         conn.execute("DROP VIEW IF EXISTS PricePerType CASCADE")
         conn.execute("DROP VIEW IF EXISTS CountFilesInDisks1 CASCADE")
         conn.execute("DROP VIEW IF EXISTS FilesCanBeInDisks CASCADE")
@@ -273,8 +254,13 @@ def deleteFile(file: File) -> Status:
     try:
         conn = Connector.DBConnector()
         query = sql.SQL(
-            "DELETE FROM Files WHERE file_id={id}").format(
-            id=sql.Literal(file.getFileID()))
+            "BEGIN;"
+            "UPDATE Disks SET free_space = free_space + {needed_space} "
+                "WHERE disk_id IN (SELECT disk_id FROM FilesInDisks WHERE file_id={f_id});"
+            "DELETE FROM Files WHERE file_id={f_id};"
+            "COMMIT;").format(
+            f_id=sql.Literal(file.getFileID()),
+            needed_space=sql.Literal(file.getSize()))
         rows_effected, _ =conn.execute(query)
         conn.commit()
 
@@ -353,7 +339,7 @@ def deleteDisk(diskID: int) -> Status:
     try:
         conn = Connector.DBConnector()
         query = sql.SQL(
-            "DELETE FROM Disks WHERE disk_id={id}").format(
+            "DELETE FROM Disks WHERE disk_id={id};").format(
             id=sql.Literal(diskID))
         rows_effected, _ = conn.execute(query)
         if rows_effected == 0:
@@ -433,7 +419,7 @@ def deleteRAM(ramID: int) -> Status:
     try:
         conn = Connector.DBConnector()
         query = sql.SQL(
-            "DELETE FROM Rams WHERE ram_id={id}").format(
+            "DELETE FROM Rams WHERE ram_id={id}; ").format(
             id=sql.Literal(ramID))
         rows_effected, _ = conn.execute(query)
         if rows_effected == 0:
@@ -669,7 +655,7 @@ def averageFileSizeOnDisk(diskID: int) -> float:
         conn.close()
     if not list(result[0].values())[0]:
         return 0
-    return list(result[0].values())[0]
+    return float(list(result[0].values())[0])
 
 
 def diskTotalRAM(diskID: int) -> int:
@@ -778,12 +764,10 @@ def getFilesCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
         conn = Connector.DBConnector()
         query = sql.SQL(
             "SELECT file_id FROM Files "
-            "WHERE Files.size <= "
-            "("
-            "(SELECT free_space FROM Disks WHERE disk_id={d_id}) "
-            "+ "
-            "(SELECT COALESCE(SUM(RamsInDisksWithRamData.ram_id) , 0) FROM RamsInDisksWithRamData WHERE disk_id = 10)"
-            ")"
+            "WHERE "
+            "Files.size <= (SELECT free_space FROM Disks WHERE disk_id={d_id}) "
+            "AND "
+            "Files.size <= (SELECT COALESCE(SUM(RamsInDisksWithRamData.ram_size) , 0) FROM RamsInDisksWithRamData WHERE disk_id = {d_id}) "
             "ORDER BY file_id ASC;").format(
             d_id=sql.Literal(diskID))
         rows_effected, result = conn.execute(query)
@@ -813,7 +797,7 @@ def isCompanyExclusive(diskID: int) -> bool:
             "SELECT company FROM "
 	        "(SELECT company FROM Disks WHERE disk_id={d_id} "
 	        "UNION "
-	        "SELECT ram_company AS company FROM RamsInDisksWithRamDataAndCompany WHERE disk_id={d_id}) AS comany "
+	        "SELECT ram_company AS company FROM RamsInDisksWithRamData WHERE disk_id={d_id}) AS comany "
             "GROUP BY company").format(
             d_id=sql.Literal(diskID))
         rows_effected, _= conn.execute(query)
@@ -841,7 +825,7 @@ def getConflictingDisks() -> List[int]:
         _, result = conn.execute(query)
         conn.commit()
 
-    except Exception as e:
+    except:
         conn.rollback()
         return my_result
     finally:
@@ -889,7 +873,7 @@ def getCloseFiles(fileID: int) -> List[int]:
         _, result = conn.execute(query)
         conn.commit()
 
-    except Exception as e:
+    except:
         conn.rollback()
         return my_result
     finally:
